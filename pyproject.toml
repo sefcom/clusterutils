@@ -6,7 +6,7 @@ build-backend = "flit_core.buildapi"
 name = "sefcom_clusterutils"
 description = "Utilities for ASU SEFCOM's kubernetes cluster"
 requires-python = "~=3.8"
-license = {file = "./LICENSE"}
+license = {file = "LICENSE"}
 authors = [{name = "Kevin Phoenix", email = "kevin@kphoenix.us"}]
 dependencies = [
     "kubernetes~=27.2.0",
