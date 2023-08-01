@@ -3,3 +3,5 @@
 venv
 .mypy_cache
 .ruff_cache
+build
+dist
