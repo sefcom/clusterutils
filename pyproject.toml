@@ -19,3 +19,12 @@ Home = "https://github.com/sefcom/clusterutils"
 
 [project.scripts]
 sc-utilization = "sefcom_clusterutils.utilization:main"
+
+[tool.ruff]
+select = ["ALL"]
+ignore = [
+    "ANN",
+    "D",
+    "T201",
+    "TRY002",
+]
