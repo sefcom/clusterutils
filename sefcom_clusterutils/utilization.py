@@ -5,7 +5,12 @@ import csv
 import sys
 
 from kubernetes import client, config
-from tabulate import tabulate
+from rich import box
+from rich.color import Color, ColorType, blend_rgb, parse_rgb_hex
+from rich.console import Console
+from rich.style import Style
+from rich.table import Column, Table
+from rich.text import Text
 
 from sefcom_clusterutils import print_version
 
@@ -294,51 +299,51 @@ def make_pretty(table):
     return table
 
 
+def calc_severity(percentage: float) -> Text:
+    # Turns percentage into green->red gradient
+    text = f"{percentage:.2f}"
+    triplet = blend_rgb(
+        parse_rgb_hex("00ff00"),
+        parse_rgb_hex("ff0000"),
+        cross_fade=percentage / 100,
+    )
+    color = Color(text, ColorType.TRUECOLOR, triplet=triplet)
+    return Text(text, style=Style(color=color))
+
+
 def print_table(table):
     table = make_pretty(table)
 
     headers = [
-        "Namespace",
-        "CPU Request",
-        "%",
-        "CPU Limit",
-        "%",
-        "CPU Usage",
-        "%",
-        "Mem Request",
-        "%",
-        "Mem Limit",
-        "%",
-        "Mem Usage",
-        "%",
-    ]
-    colalign = [
-        "left",
-        "left",
-        "decimal",
-        "left",
-        "decimal",
-        "left",
-        "decimal",
-        "left",
-        "decimal",
-        "left",
-        "decimal",
-        "left",
-        "decimal",
+        Column("Namespace"),
+        Column("CPU Request"),
+        Column("%", justify="right"),
+        Column("CPU Limit"),
+        Column("%", justify="right"),
+        Column("CPU Usage"),
+        Column("%", justify="right"),
+        Column("Mem Request"),
+        Column("%", justify="right"),
+        Column("Mem Limit"),
+        Column("%", justify="right"),
+        Column("Mem Usage"),
+        Column("%", justify="right"),
     ]
 
-    print(
-        tabulate(
-            table,
-            headers=headers,
-            tablefmt="plain",
-            numalign="left",
-            stralign="left",
-            floatfmt=".2f",
-            colalign=colalign,
-        ),
-    )
+    rich_table = Table(*headers, box=box.SIMPLE)
+    for idx, row in enumerate(table):
+        if idx == len(table) - 1:
+            rich_table.add_row(*[x if isinstance(x, str) else f"{x:.2f}" for x in row])
+            continue
+
+        if idx == len(table) - 2:
+            rich_table.add_section()
+        rich_table.add_row(
+            *[x if isinstance(x, str) else calc_severity(x) for x in row],
+        )
+
+    with Console() as console:
+        console.print(rich_table)
 
 
 def print_csv(table):
