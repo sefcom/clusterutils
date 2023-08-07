@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import dataclasses
 import sys
 
 from kubernetes import client, config
@@ -12,10 +11,7 @@ from sefcom_clusterutils import print_version
 
 
 def parse_cpu(size_str: str, fallback_unit: str | None) -> float:
-    """
-    Emits in nanocores
-    """
-
+    """Emits in nanocores."""
     if not size_str:
         return 0.0
 
@@ -23,23 +19,26 @@ def parse_cpu(size_str: str, fallback_unit: str | None) -> float:
     size = float("".join(filter(str.isdigit, size_str)))
 
     if size == 0:
-        return 0.0
+        result = 0.0
     elif size_str.endswith("m"):
-        return size * 10**6
+        result = size * 10**6
     elif size_str.endswith("u"):
-        return size * 10**3
+        result = size * 10**3
     elif size_str.endswith("n"):
-        return size
+        result = size
     elif fallback_unit == "m":
-        return size * 10**6
+        result = size * 10**6
     elif fallback_unit == "u":
-        return size * 10**3
+        result = size * 10**3
     elif fallback_unit == "n":
-        return size
+        result = size
     elif fallback_unit == "unit":
-        return size * 10**9
+        result = size * 10**9
     else:
-        raise Exception(f"CPU unit unknown for string {size_str}")
+        msg = f"CPU unit unknown for string {size_str}"
+        raise Exception(msg)
+
+    return result
 
 
 def parse_memory(size_str: str, fallback_unit: str | None = None) -> int:
@@ -50,21 +49,24 @@ def parse_memory(size_str: str, fallback_unit: str | None = None) -> int:
     size = float("".join(filter(str.isdigit, size_str)))
 
     if size_str.endswith(("G", "Gi", "g", "gi")):
-        return int(size * pow(1024, 3))
+        result = int(size * pow(1024, 3))
     elif size_str.endswith(("M", "Mi", "m", "mi")):
-        return int(size * pow(1024, 2))
-    if size_str.endswith(("K", "Ki", "k", "ki")):
-        return int(size * 1024)
+        result = int(size * pow(1024, 2))
+    elif size_str.endswith(("K", "Ki", "k", "ki")):
+        result = int(size * 1024)
     elif fallback_unit == "g":
-        return int(size * pow(1024, 3))
+        result = int(size * pow(1024, 3))
     elif fallback_unit == "m":
-        return int(size * pow(1024, 2))
+        result = int(size * pow(1024, 2))
     elif fallback_unit == "k":
-        return int(size * 1024)
+        result = int(size * 1024)
     elif fallback_unit == "b":
-        return int(size)
+        result = int(size)
     else:
-        raise Exception(f"Memory unit unknown for string {size_str}")
+        msg = f"Memory unit unknown for string {size_str}"
+        raise Exception(msg)
+
+    return result
 
 
 def get_summary_pod_resources():
@@ -139,7 +141,8 @@ def get_pod_metrics():
 
         for container in item["containers"]:
             ns_metrics["cpu_usage"] += parse_cpu(
-                container["usage"]["cpu"], fallback_unit="n"
+                container["usage"]["cpu"],
+                fallback_unit="n",
             )
             ns_metrics["mem_usage"] += parse_memory(container["usage"]["memory"])
 
@@ -157,10 +160,12 @@ def get_cluster_capacity():
 
     for node in nodes.items:
         total_capacity["cpu"] += parse_cpu(
-            node.status.capacity.get("cpu", "0"), fallback_unit="unit"
+            node.status.capacity.get("cpu", "0"),
+            fallback_unit="unit",
         )
         total_capacity["memory"] += parse_memory(
-            node.status.capacity.get("memory", "0"), fallback_unit="b"
+            node.status.capacity.get("memory", "0"),
+            fallback_unit="b",
         )
 
     return total_capacity
@@ -168,27 +173,32 @@ def get_cluster_capacity():
 
 def format_cpu(cpu):
     """Format CPU resource value."""
+    mcpu_divide_threshold = 1000
+
     cpu = cpu / (10**6)
-    if cpu >= 1000:
+
+    if cpu >= mcpu_divide_threshold:
         return f"{cpu / 1000:.2f} CPU"
-    else:
-        return f"{cpu:.2f} mCPU"
+
+    return f"{cpu:.2f} mCPU"
 
 
 def format_mem(num_bytes: int) -> str:
-    """
-    Takes in bytes, returns in formatted unit
-    """
-    if num_bytes < 1024:  # Bytes
-        return f"{num_bytes:.2f} B"
-    elif num_bytes < 1024**2:  # KB
-        return f"{num_bytes / 1024:.2f} KB"
-    elif num_bytes < 1024**3:  # MB
-        return f"{num_bytes / (1024**2):.2f} MB"
-    elif num_bytes < 1024**4:  # GB
-        return f"{num_bytes / (1024**3):.2f} GB"
+    """Takes in bytes, returns in formatted unit."""
+    bytes_base = 1024
+
+    if num_bytes < bytes_base:  # Bytes
+        result = f"{num_bytes:.2f} B"
+    elif num_bytes < bytes_base * 2:  # KB
+        result = f"{num_bytes / bytes_base:.2f} KB"
+    elif num_bytes < bytes_base * 3:  # MB
+        result = f"{num_bytes / (bytes_base*2):.2f} MB"
+    elif num_bytes < bytes_base * 4:  # GB
+        result = f"{num_bytes / (1024**3):.2f} GB"
     else:  # TB
-        return f"{num_bytes / (1024**4):.2f} TB"
+        result = f"{num_bytes / (1024**4):.2f} TB"
+
+    return result
 
 
 def build_table(resources, metrics, total_capacity):
@@ -327,7 +337,7 @@ def print_table(table):
             stralign="left",
             floatfmt=".2f",
             colalign=colalign,
-        )
+        ),
     )
 
 
