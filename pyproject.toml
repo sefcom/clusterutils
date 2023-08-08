@@ -23,8 +23,8 @@ sc-utilization = "sefcom_clusterutils.utilization:main"
 [tool.ruff]
 select = ["ALL"]
 ignore = [
-    "ANN",
     "D",
+    "FBT",
     "T201",
     "TRY002",
 ]

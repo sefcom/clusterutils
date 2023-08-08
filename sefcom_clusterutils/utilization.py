@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from typing import NamedTuple
 
 from kubernetes import client, config
 from rich import box
@@ -15,16 +16,32 @@ from rich.text import Text
 from sefcom_clusterutils import print_version
 
 
-def parse_cpu(size_str: str, fallback_unit: str | None) -> float:
+class TableRow(NamedTuple):
+    namespace: str
+    cpu_request: float
+    cpu_request_percent: float
+    cpu_limit: float
+    cpu_limit_percent: float
+    cpu_usage: float
+    cpu_usage_percent: float
+    mem_request: int
+    mem_request_percent: float
+    mem_limit: int
+    mem_limit_percent: float
+    mem_usage: int
+    mem_usage_percent: float
+
+
+def parse_cpu(size_str: str, fallback_unit: str | None) -> int:
     """Emits in nanocores."""
     if not size_str:
-        return 0.0
+        return 0
 
     size_str = size_str.strip()
-    size = float("".join(filter(str.isdigit, size_str)))
+    size = int("".join(filter(str.isdigit, size_str)))
 
     if size == 0:
-        result = 0.0
+        result = 0
     elif size_str.endswith("m"):
         result = size * 10**6
     elif size_str.endswith("u"):
@@ -74,11 +91,11 @@ def parse_memory(size_str: str, fallback_unit: str | None = None) -> int:
     return result
 
 
-def get_summary_pod_resources():
+def get_summary_pod_resources() -> dict[str, dict[str, int]]:
     config.load_kube_config()
     v1 = client.CoreV1Api()
 
-    resources = {}
+    resources: dict[str, dict[str, int]] = {}
     pods = v1.list_pod_for_all_namespaces(watch=False)
 
     for i in pods.items:
@@ -130,13 +147,13 @@ def get_summary_pod_resources():
     return resources
 
 
-def get_pod_metrics():
+def get_pod_metrics() -> dict[str, dict[str, int]]:
     config.load_kube_config()
     api = client.CustomObjectsApi()
 
     metrics = api.list_cluster_custom_object("metrics.k8s.io", "v1beta1", "pods")
 
-    all_metrics = {}
+    all_metrics: dict[str, dict[str, int]] = {}
 
     for item in metrics["items"]:
         ns_name = item["metadata"]["namespace"]
@@ -156,7 +173,7 @@ def get_pod_metrics():
     return all_metrics
 
 
-def get_cluster_capacity():
+def get_cluster_capacity() -> dict[str, int]:
     config.load_kube_config()
     v1 = client.CoreV1Api()
 
@@ -176,19 +193,19 @@ def get_cluster_capacity():
     return total_capacity
 
 
-def format_cpu(cpu):
+def format_cpu(cpu: float) -> Text:
     """Format CPU resource value."""
     mcpu_divide_threshold = 1000
 
     cpu = cpu / (10**6)
 
     if cpu >= mcpu_divide_threshold:
-        return f"{cpu / 1000:.2f} CPU"
+        return Text(f"{cpu / 1000:.2f} CPU")
 
-    return f"{cpu:.2f} mCPU"
+    return Text(f"{cpu:.2f} mCPU")
 
 
-def format_mem(num_bytes: int) -> str:
+def format_mem(num_bytes: int) -> Text:
     """Takes in bytes, returns in formatted unit."""
     bytes_base = 1024
 
@@ -203,16 +220,20 @@ def format_mem(num_bytes: int) -> str:
     else:  # TB
         result = f"{num_bytes / (1024**4):.2f} TB"
 
-    return result
+    return Text(result)
 
 
-def build_table(resources, metrics, total_capacity):
-    table = []
+def build_table(
+    resources: dict[str, dict[str, int]],
+    metrics: dict[str, dict[str, int]],
+    total_capacity: dict[str, int],
+) -> list[TableRow]:
+    table: list[TableRow] = []
 
     for namespace, resource_dict in resources.items():
         metric_dict = metrics.get(namespace, {"cpu_usage": 0, "mem_usage": 0})
 
-        row = [
+        row = TableRow(
             namespace,
             resource_dict["cpu_request"],
             resource_dict["cpu_request"] / total_capacity["cpu"] * 100,
@@ -226,94 +247,108 @@ def build_table(resources, metrics, total_capacity):
             resource_dict["mem_limit"] / total_capacity["memory"] * 100,
             metric_dict["mem_usage"],
             metric_dict["mem_usage"] / total_capacity["memory"] * 100,
-        ]
+        )
         table.append(row)
 
     return table
 
 
-def sort_table(table, sort_key):
-    if sort_key is None:
-        return table  # No sorting needed
-
-    # Convert args.sort_by into an index
-    sort_index_map = {
-        "name": 0,
-        "n": 0,
-        "cpu-request": 1,
-        "cr": 1,
-        "cpu-limit": 3,
-        "cl": 3,
-        "cpu-usage": 5,
-        "cu": 5,
-        "mem-request": 7,
-        "mr": 7,
-        "mem-limit": 9,
-        "ml": 9,
-        "mem-usage": 11,
-        "mu": 11,
+def sort_table(table: list[TableRow], sort_key: str) -> list[TableRow]:
+    """Sorts the table rows based on the provided sort_key."""
+    # Define a mapping from sort_key strings to TableRow attributes
+    key_mapping = {
+        "name": lambda row: row.namespace,
+        "cpu-request": lambda row: row.cpu_request,
+        "cpu-limit": lambda row: row.cpu_limit,
+        "cpu-usage": lambda row: row.cpu_usage,
+        "mem-request": lambda row: row.mem_request,
+        "mem-limit": lambda row: row.mem_limit,
+        "mem-usage": lambda row: row.mem_usage,
+        "n": lambda row: row.namespace,
+        "cr": lambda row: row.cpu_request,
+        "cl": lambda row: row.cpu_limit,
+        "cu": lambda row: row.cpu_usage,
+        "mr": lambda row: row.mem_request,
+        "ml": lambda row: row.mem_limit,
+        "mu": lambda row: row.mem_usage,
     }
-    sort_by_index = sort_index_map.get(sort_key)
 
-    return sorted(table, key=lambda t: t[sort_by_index], reverse=True)
+    # Ensure the provided sort_key is valid
+    if sort_key not in key_mapping:
+        sort_key = "name"
+
+    # Sort the table using the selected key
+    return sorted(table, key=key_mapping[sort_key])
 
 
-def add_total_row(table):
-    row = [
-        "Total Used",
-        *[sum([row[column] for row in table]) for column in range(1, len(table[0]))],
-    ]
-    table.append(row)
+def add_total_row(table: list[TableRow]) -> list[TableRow]:
+    total_cpu_request = sum(row.cpu_request for row in table)
+    total_cpu_limit = sum(row.cpu_limit for row in table)
+    total_cpu_usage = sum(row.cpu_usage for row in table)
+    total_mem_request = sum(row.mem_request for row in table)
+    total_mem_limit = sum(row.mem_limit for row in table)
+    total_mem_usage = sum(row.mem_usage for row in table)
+
+    total_row = TableRow(
+        namespace="Total Used",
+        cpu_request=total_cpu_request,
+        cpu_request_percent=sum(row.cpu_request_percent for row in table),
+        cpu_limit=total_cpu_limit,
+        cpu_limit_percent=sum(row.cpu_limit_percent for row in table),
+        cpu_usage=total_cpu_usage,
+        cpu_usage_percent=sum(row.cpu_usage_percent for row in table),
+        mem_request=total_mem_request,
+        mem_request_percent=sum(row.mem_request_percent for row in table),
+        mem_limit=total_mem_limit,
+        mem_limit_percent=sum(row.mem_limit_percent for row in table),
+        mem_usage=total_mem_usage,
+        mem_usage_percent=sum(row.mem_usage_percent for row in table),
+    )
+
+    table.append(total_row)
     return table
 
 
-def add_capacity_row(table, total_capacity):
-    row = [
-        "Capacity",
-        total_capacity["cpu"],
-        100.0,
-        total_capacity["cpu"],
-        100.0,
-        total_capacity["cpu"],
-        100.0,
-        total_capacity["memory"],
-        100.0,
-        total_capacity["memory"],
-        100.0,
-        total_capacity["memory"],
-        100.0,
-    ]
-    table.append(row)
+def add_capacity_row(
+    table: list[TableRow],
+    total_capacity: dict[str, int],
+) -> list[TableRow]:
+    capacity_row = TableRow(
+        namespace="Total Capacity",
+        cpu_request=total_capacity["cpu"],
+        cpu_request_percent=100.0,
+        cpu_limit=total_capacity["cpu"],
+        cpu_limit_percent=100.0,
+        cpu_usage=0,
+        cpu_usage_percent=0,
+        mem_request=total_capacity["memory"],
+        mem_request_percent=100.0,
+        mem_limit=total_capacity["memory"],
+        mem_limit_percent=100.0,
+        mem_usage=0,
+        mem_usage_percent=0,
+    )
+
+    table.append(capacity_row)
     return table
 
 
-def make_pretty(table):
-    for row in table:
-        row[1] = format_cpu(row[1])
-        row[3] = format_cpu(row[3])
-        row[5] = format_cpu(row[5])
-        row[7] = format_mem(row[7])
-        row[9] = format_mem(row[9])
-        row[11] = format_mem(row[11])
+def calc_severity(percent: float, colorize: bool) -> Text:
+    # Turns percent into green->red gradient
+    text = f"{percent:.2f}"
+    if not colorize:
+        return Text(text)
 
-    return table
-
-
-def calc_severity(percentage: float) -> Text:
-    # Turns percentage into green->red gradient
-    text = f"{percentage:.2f}"
     triplet = blend_rgb(
         parse_rgb_hex("00ff00"),
         parse_rgb_hex("ff0000"),
-        cross_fade=percentage / 100,
+        cross_fade=percent / 100,
     )
     color = Color(text, ColorType.TRUECOLOR, triplet=triplet)
     return Text(text, style=Style(color=color))
 
 
-def print_table(table):
-    table = make_pretty(table)
-
+def print_table(table: list[TableRow]) -> None:
     headers = [
         Column("Namespace"),
         Column("CPU Request"),
@@ -332,26 +367,73 @@ def print_table(table):
 
     rich_table = Table(*headers, box=box.SIMPLE)
     for idx, row in enumerate(table):
-        if idx == len(table) - 1:
-            rich_table.add_row(*[x if isinstance(x, str) else f"{x:.2f}" for x in row])
-            continue
-
         if idx == len(table) - 2:
             rich_table.add_section()
-        rich_table.add_row(
-            *[x if isinstance(x, str) else calc_severity(x) for x in row],
-        )
+
+        pretty_row: list[Text] = [
+            Text(row.namespace),
+            format_cpu(row.cpu_request),
+            calc_severity(row.cpu_request_percent, row.namespace != "Total Capacity"),
+            format_cpu(row.cpu_limit),
+            calc_severity(row.cpu_limit_percent, row.namespace != "Total Capacity"),
+            format_cpu(row.cpu_usage),
+            calc_severity(row.cpu_usage_percent, row.namespace != "Total Capacity"),
+            format_mem(row.mem_request),
+            calc_severity(row.mem_request_percent, row.namespace != "Total Capacity"),
+            format_mem(row.mem_limit),
+            calc_severity(row.mem_limit_percent, row.namespace != "Total Capacity"),
+            format_mem(row.mem_usage),
+            calc_severity(row.mem_usage_percent, row.namespace != "Total Capacity"),
+        ]
+        rich_table.add_row(*pretty_row)
 
     with Console() as console:
         console.print(rich_table)
 
 
-def print_csv(table):
+def print_csv(table: list[TableRow]) -> None:
     writer = csv.writer(sys.stdout)
-    writer.writerows(table)
+
+    # Print header
+    headers = [
+        "namespace",
+        "cpu_request",
+        "cpu_request_percent",
+        "cpu_limit",
+        "cpu_limit_percent",
+        "cpu_usage",
+        "cpu_usage_percent",
+        "mem_request",
+        "mem_request_percent",
+        "mem_limit",
+        "mem_limit_percent",
+        "mem_usage",
+        "mem_usage_percent",
+    ]
+    writer.writerow(headers)
+
+    # Print each row of the table
+    for row in table:
+        writer.writerow(
+            [
+                row.namespace,
+                row.cpu_request,
+                row.cpu_request_percent,
+                row.cpu_limit,
+                row.cpu_limit_percent,
+                row.cpu_usage,
+                row.cpu_usage_percent,
+                row.mem_request,
+                row.mem_request_percent,
+                row.mem_limit,
+                row.mem_limit_percent,
+                row.mem_usage,
+                row.mem_usage_percent,
+            ],
+        )
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-v",
@@ -388,7 +470,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     if args.version:
