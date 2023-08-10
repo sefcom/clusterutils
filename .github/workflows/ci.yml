@@ -1,0 +1,43 @@
+name: Build release artifacts
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Build sdist
+        run: pyproject-build
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: dist
+          path: ./dist/*
+
+  publish:
+    name: Publish artifacts to PyPI
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+    needs: build
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: dist
+
+      - name: Make new release
+        run: >
+          gh release create ${{ github.ref_name }} --generate-notes dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
