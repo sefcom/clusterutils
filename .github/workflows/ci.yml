@@ -10,6 +10,9 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v3
 
+      - name: Install pyproject-build
+        run: pipx install build
+
       - name: Build sdist
         run: pyproject-build
 
