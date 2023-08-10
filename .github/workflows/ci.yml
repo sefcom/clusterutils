@@ -34,6 +34,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v3
         with:
+          name: dist
           path: dist
 
       - name: Make new release
