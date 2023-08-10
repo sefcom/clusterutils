@@ -37,7 +37,9 @@ jobs:
 
       - name: Make new release
         run: >
-          gh release create ${{ github.ref_name }} --generate-notes dist/*
+          gh release create ${{ github.ref_name }} \
+            --repo ${{ github.repository }} \
+            --generate-notes dist/*
         env:
           GH_TOKEN: ${{ github.token }}
 
