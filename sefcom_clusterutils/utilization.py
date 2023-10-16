@@ -464,7 +464,7 @@ def parse_args() -> argparse.Namespace:
             "ml",
             "mu",
         ],
-        help="sort by specifid field",
+        help="sort by specified field",
     )
     return parser.parse_args()
 
