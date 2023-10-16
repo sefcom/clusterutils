@@ -157,7 +157,6 @@ def get_pod_metrics() -> dict[str, dict[str, int]]:
 
     for item in metrics["items"]:
         ns_name = item["metadata"]["namespace"]
-        item["metadata"]["name"]
 
         ns_metrics = all_metrics.get(ns_name, {"cpu_usage": 0, "mem_usage": 0})
 
