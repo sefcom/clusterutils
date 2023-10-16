@@ -96,11 +96,14 @@ def get_summary_pod_resources() -> dict[str, dict[str, int]]:
     v1 = client.CoreV1Api()
 
     resources: dict[str, dict[str, int]] = {}
-    pods = v1.list_pod_for_all_namespaces(watch=False)
+    pods = v1.list_pod_for_all_namespaces(
+        field_selector="status.phase=Running",
+        watch=False,
+    )
 
     for i in pods.items:
         namespace = i.metadata.namespace
-        if not i.spec.containers or i.status.phase != "Running":
+        if not i.spec.containers:
             continue
         for container in i.spec.containers:
             if not container.resources:
