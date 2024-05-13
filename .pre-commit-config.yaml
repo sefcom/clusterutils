@@ -1,6 +1,6 @@
 repos:
   - repo: 'https://github.com/abravalheri/validate-pyproject'
-    rev: v0.16
+    rev: v0.17
     hooks:
       - id: validate-pyproject
         fail_fast: true
@@ -26,7 +26,7 @@ repos:
         fail_fast: true
 
   - repo: 'https://github.com/astral-sh/ruff-pre-commit'
-    rev: v0.4.3
+    rev: v0.4.4
     hooks:
       - id: ruff
         args:
