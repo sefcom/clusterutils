@@ -30,6 +30,10 @@ class TableRow(NamedTuple):
     mem_limit_percent: float
     mem_usage: int
     mem_usage_percent: float
+    storage_request: int
+    storage_request_percent: float
+    storage_limit: int
+    storage_limit_percent: float
 
 
 def parse_cpu(size_str: str, fallback_unit: str | None) -> int:
@@ -110,7 +114,14 @@ def get_summary_pod_resources() -> dict[str, dict[str, int]]:
                 continue
             resource_dict = resources.get(
                 namespace,
-                {"cpu_request": 0, "cpu_limit": 0, "mem_request": 0, "mem_limit": 0},
+                {
+                    "cpu_request": 0,
+                    "cpu_limit": 0,
+                    "mem_request": 0,
+                    "mem_limit": 0,
+                    "storage_request": 0,
+                    "storage_limit": 0,
+                },
             )
 
             cpu_request = (
@@ -133,6 +144,16 @@ def get_summary_pod_resources() -> dict[str, dict[str, int]]:
                 if container.resources.limits
                 else None
             )
+            storage_request = (
+                container.resources.requests.get("ephemeral-storage")
+                if container.resources.requests
+                else None
+            )
+            storage_limit = (
+                container.resources.limits.get("ephemeral-storage")
+                if container.resources.limits
+                else None
+            )
 
             resource_dict["cpu_request"] += (
                 parse_cpu(cpu_request, fallback_unit="unit") if cpu_request else 0
@@ -144,6 +165,12 @@ def get_summary_pod_resources() -> dict[str, dict[str, int]]:
                 parse_memory(mem_request) if mem_request else 0
             )
             resource_dict["mem_limit"] += parse_memory(mem_limit) if mem_limit else 0
+            resource_dict["storage_request"] += (
+                parse_memory(storage_request) if storage_request else 0
+            )
+            resource_dict["storage_limit"] += (
+                parse_memory(storage_limit) if storage_limit else 0
+            )
 
             resources[namespace] = resource_dict
 
@@ -161,7 +188,10 @@ def get_pod_metrics() -> dict[str, dict[str, int]]:
     for item in metrics["items"]:
         ns_name = item["metadata"]["namespace"]
 
-        ns_metrics = all_metrics.get(ns_name, {"cpu_usage": 0, "mem_usage": 0})
+        ns_metrics = all_metrics.get(
+            ns_name,
+            {"cpu_usage": 0, "mem_usage": 0},
+        )
 
         for container in item["containers"]:
             ns_metrics["cpu_usage"] += parse_cpu(
@@ -180,7 +210,7 @@ def get_cluster_capacity() -> dict[str, int]:
     v1 = client.CoreV1Api()
 
     nodes = v1.list_node()
-    total_capacity = {"cpu": 0, "memory": 0}
+    total_capacity = {"cpu": 0, "memory": 0, "storage": 0}
 
     for node in nodes.items:
         total_capacity["cpu"] += parse_cpu(
@@ -189,6 +219,10 @@ def get_cluster_capacity() -> dict[str, int]:
         )
         total_capacity["memory"] += parse_memory(
             node.status.capacity.get("memory", "0"),
+            fallback_unit="b",
+        )
+        total_capacity["storage"] += parse_memory(
+            node.status.capacity.get("ephemeral-storage", "0"),
             fallback_unit="b",
         )
 
@@ -233,7 +267,10 @@ def build_table(
     table: list[TableRow] = []
 
     for namespace, resource_dict in resources.items():
-        metric_dict = metrics.get(namespace, {"cpu_usage": 0, "mem_usage": 0})
+        metric_dict = metrics.get(
+            namespace,
+            {"cpu_usage": 0, "mem_usage": 0},
+        )
 
         row = TableRow(
             namespace,
@@ -249,6 +286,10 @@ def build_table(
             resource_dict["mem_limit"] / total_capacity["memory"] * 100,
             metric_dict["mem_usage"],
             metric_dict["mem_usage"] / total_capacity["memory"] * 100,
+            resource_dict["storage_request"],
+            resource_dict["storage_request"] / total_capacity["storage"] * 100,
+            resource_dict["storage_limit"],
+            resource_dict["storage_limit"] / total_capacity["storage"] * 100,
         )
         table.append(row)
 
@@ -266,6 +307,8 @@ def sort_table(table: list[TableRow], sort_key: str) -> list[TableRow]:
         "mem-request": lambda row: row.mem_request,
         "mem-limit": lambda row: row.mem_limit,
         "mem-usage": lambda row: row.mem_usage,
+        "storage-request": lambda row: row.storage_request,
+        "storage-limit": lambda row: row.storage_limit,
         "n": lambda row: row.namespace,
         "cr": lambda row: row.cpu_request,
         "cl": lambda row: row.cpu_limit,
@@ -273,6 +316,8 @@ def sort_table(table: list[TableRow], sort_key: str) -> list[TableRow]:
         "mr": lambda row: row.mem_request,
         "ml": lambda row: row.mem_limit,
         "mu": lambda row: row.mem_usage,
+        "sr": lambda row: row.storage_request,
+        "sl": lambda row: row.storage_limit,
     }
 
     # Ensure the provided sort_key is valid
@@ -290,6 +335,8 @@ def add_total_row(table: list[TableRow]) -> list[TableRow]:
     total_mem_request = sum(row.mem_request for row in table)
     total_mem_limit = sum(row.mem_limit for row in table)
     total_mem_usage = sum(row.mem_usage for row in table)
+    total_storage_request = sum(row.storage_request for row in table)
+    total_storage_limit = sum(row.storage_limit for row in table)
 
     total_row = TableRow(
         namespace="Total Used",
@@ -305,6 +352,10 @@ def add_total_row(table: list[TableRow]) -> list[TableRow]:
         mem_limit_percent=sum(row.mem_limit_percent for row in table),
         mem_usage=total_mem_usage,
         mem_usage_percent=sum(row.mem_usage_percent for row in table),
+        storage_request=total_storage_request,
+        storage_request_percent=sum(row.storage_request_percent for row in table),
+        storage_limit=total_storage_limit,
+        storage_limit_percent=sum(row.storage_limit_percent for row in table),
     )
 
     table.append(total_row)
@@ -329,6 +380,10 @@ def add_capacity_row(
         mem_limit_percent=100.0,
         mem_usage=0,
         mem_usage_percent=0,
+        storage_request=total_capacity["storage"],
+        storage_request_percent=100.0,
+        storage_limit=total_capacity["storage"],
+        storage_limit_percent=100.0,
     )
 
     table.append(capacity_row)
@@ -365,6 +420,10 @@ def print_table(table: list[TableRow]) -> None:
         Column("%", justify="right"),
         Column("Mem Usage"),
         Column("%", justify="right"),
+        Column("Storage Req"),
+        Column("%", justify="right"),
+        Column("Storage Lim"),
+        Column("%", justify="right"),
     ]
 
     rich_table = Table(*headers, box=box.SIMPLE)
@@ -386,6 +445,13 @@ def print_table(table: list[TableRow]) -> None:
             calc_severity(row.mem_limit_percent, row.namespace != "Total Capacity"),
             format_mem(row.mem_usage),
             calc_severity(row.mem_usage_percent, row.namespace != "Total Capacity"),
+            format_mem(row.storage_request),
+            calc_severity(
+                row.storage_request_percent,
+                row.namespace != "Total Capacity",
+            ),
+            format_mem(row.storage_limit),
+            calc_severity(row.storage_limit_percent, row.namespace != "Total Capacity"),
         ]
         rich_table.add_row(*pretty_row)
 
@@ -411,6 +477,10 @@ def print_csv(table: list[TableRow]) -> None:
         "mem_limit_percent",
         "mem_usage",
         "mem_usage_percent",
+        "storage_request",
+        "storage_request_percent",
+        "storage_limit",
+        "storage_limit_percent",
     ]
     writer.writerow(headers)
 
@@ -431,6 +501,10 @@ def print_csv(table: list[TableRow]) -> None:
                 row.mem_limit_percent,
                 row.mem_usage,
                 row.mem_usage_percent,
+                row.storage_request,
+                row.storage_request_percent,
+                row.storage_limit,
+                row.storage_limit_percent,
             ],
         )
 
@@ -459,6 +533,8 @@ def parse_args() -> argparse.Namespace:
             "mem-request",
             "mem-limit",
             "mem-usage",
+            "storage-request",
+            "storage-limit",
             "n",
             "cr",
             "cl",
@@ -466,6 +542,8 @@ def parse_args() -> argparse.Namespace:
             "mr",
             "ml",
             "mu",
+            "sr",
+            "sl",
         ],
         help="sort by specified field",
     )
