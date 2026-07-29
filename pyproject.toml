@@ -21,9 +21,10 @@ Home = "https://github.com/sefcom/clusterutils"
 [project.scripts]
 sc-utilization = "sefcom_clusterutils.utilization:main"
 
-[tool.ruff]
+[tool.ruff.lint]
 select = ["ALL"]
 ignore = [
+    "CPY",
     "D",
     "FBT",
     "T201",
